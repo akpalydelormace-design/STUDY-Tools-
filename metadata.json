@@ -1,0 +1,6 @@
+{
+  "name": "Study Tools",
+  "description": "Compagnon scolaire personnel 100 % hors ligne avec lecteur PDF, agenda d'évaluations, bloc-notes enrichi et bulletin avec calcul de moyennes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

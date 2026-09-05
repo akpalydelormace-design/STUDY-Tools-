@@ -73,7 +73,14 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     val selectedTrimestre: StateFlow<Int> = _selectedTrimestre.asStateFlow()
 
     fun setSelectedTrimestre(t: Int) {
-        _selectedTrimestre.value = t
+        if (t in 1..3) _selectedTrimestre.value = t
+    }
+
+    private val _selectedSchoolYear = MutableStateFlow(GradeCalculator.currentSchoolYear())
+    val selectedSchoolYear: StateFlow<String> = _selectedSchoolYear.asStateFlow()
+
+    fun setSelectedSchoolYear(year: String) {
+        if (year.isNotBlank()) _selectedSchoolYear.value = year.trim()
     }
 
     // Theme mode: "SYSTEM", "LIGHT", "DARK"
@@ -120,25 +127,27 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     // Current Trimestre Report
     val currentTrimestreReport: StateFlow<TrimestreReport> = combine(
         _selectedTrimestre,
+        _selectedSchoolYear,
         subjects,
         grades
-    ) { trim, subjs, grds ->
-        GradeCalculator.buildTrimestreReport(trim, subjs, grds)
+    ) { trim, schoolYear, subjs, grds ->
+        GradeCalculator.buildTrimestreReport(trim, subjs, grds, schoolYear)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        TrimestreReport(1, emptyList(), null, 0f, null, null)
+        TrimestreReport(GradeCalculator.currentSchoolYear(), 1, emptyList(), null, 0f, null, null)
     )
 
     // Reports for all 3 trimestres to calculate evolution
     val allTrimestresReports: StateFlow<Map<Int, TrimestreReport>> = combine(
+        _selectedSchoolYear,
         subjects,
         grades
-    ) { subjs, grds ->
+    ) { schoolYear, subjs, grds ->
         mapOf(
-            1 to GradeCalculator.buildTrimestreReport(1, subjs, grds),
-            2 to GradeCalculator.buildTrimestreReport(2, subjs, grds),
-            3 to GradeCalculator.buildTrimestreReport(3, subjs, grds)
+            1 to GradeCalculator.buildTrimestreReport(1, subjs, grds, schoolYear),
+            2 to GradeCalculator.buildTrimestreReport(2, subjs, grds, schoolYear),
+            3 to GradeCalculator.buildTrimestreReport(3, subjs, grds, schoolYear)
         )
     }.stateIn(
         viewModelScope,
@@ -433,7 +442,8 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         coefficient: Float,
         evaluationType: String,
         date: Long,
-        comment: String
+        comment: String,
+        schoolYear: String = _selectedSchoolYear.value
     ) {
         viewModelScope.launch {
             repository.addGrade(
@@ -445,9 +455,14 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
                 coefficient = coefficient,
                 evaluationType = evaluationType,
                 date = date,
-                comment = comment
+                comment = comment,
+                schoolYear = schoolYear
             )
         }
+    }
+
+    fun updateGrade(grade: GradeEntity) {
+        viewModelScope.launch { repository.updateGrade(grade) }
     }
 
     fun deleteGrade(grade: GradeEntity) {

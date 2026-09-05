@@ -23,8 +23,14 @@ data class GradeEntity(
     val coefficient: Float = 1.0f,
     val evaluationType: String = "Devoir",
     val date: Long = System.currentTimeMillis(),
-    val comment: String = ""
-)
+    val comment: String = "",
+    /** School year selected by the learner (for example, 2025-2026). */
+    val schoolYear: String = "Non renseignée"
+) {
+    companion object {
+        const val UNSPECIFIED_SCHOOL_YEAR = "Non renseignée"
+    }
+}
 
 @Entity(tableName = "agenda_events")
 data class AgendaEventEntity(
@@ -144,4 +150,3 @@ data class HistoryEntity(
     val extraData: String = "",          // Additional metadata like page number, note type, search query
     val timestamp: Long = System.currentTimeMillis()
 )
-

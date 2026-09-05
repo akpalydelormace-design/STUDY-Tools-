@@ -15,6 +15,7 @@ import com.example.data.model.Note
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
+import com.example.data.model.PodcastEntity
 import com.example.data.model.SubjectEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,9 +32,10 @@ import kotlinx.coroutines.launch
         NoteEntity::class,
         PdfDocumentEntity::class,
         AppSettingsEntity::class,
-        HistoryEntity::class
+        HistoryEntity::class,
+        PodcastEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class StudyDatabase : RoomDatabase() {
@@ -47,6 +49,7 @@ abstract class StudyDatabase : RoomDatabase() {
     abstract fun pdfDao(): PdfDao
     abstract fun settingsDao(): SettingsDao
     abstract fun historyDao(): HistoryDao
+    abstract fun podcastDao(): PodcastDao
 
     companion object {
         @Volatile
@@ -86,13 +89,35 @@ abstract class StudyDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS podcasts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        pdfId INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        durationMs INTEGER NOT NULL DEFAULT 0,
+                        localAudioPath TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'COMPLETED',
+                        script TEXT NOT NULL DEFAULT '',
+                        modelUsed TEXT NOT NULL DEFAULT 'gemini-2.5-flash-preview-tts',
+                        segmentCount INTEGER NOT NULL DEFAULT 1,
+                        playbackPositionMs INTEGER NOT NULL DEFAULT 0,
+                        lastListenedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_podcasts_pdfId ON podcasts(pdfId)")
+            }
+        }
+
         fun getInstance(context: Context): StudyDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     StudyDatabase::class.java,
                     "study_tools.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

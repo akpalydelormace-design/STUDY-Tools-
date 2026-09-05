@@ -12,6 +12,7 @@ import com.example.data.model.HistoryTypes
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
+import com.example.data.model.PodcastEntity
 import com.example.data.model.SubjectEntity
 import com.example.domain.GradeCalculator
 import com.example.data.pdf.PdfHelper
@@ -339,7 +340,8 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
     }
 
     suspend fun deletePdfFromLibrary(pdf: PdfDocumentEntity) {
-        // Delete only from library / app cache if desired, without affecting user original storage
+        // Delete podcast associated with this PDF if any
+        deletePodcastByPdfId(pdf.id)
         try {
             val file = File(pdf.localFilePath)
             if (file.exists()) {
@@ -347,6 +349,38 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
             }
         } catch (_: Exception) {}
         db.pdfDao().deletePdf(pdf)
+    }
+
+    // Podcast Document Operations
+    fun getPodcastForPdf(pdfId: Long): Flow<PodcastEntity?> {
+        return db.podcastDao().getPodcastForPdf(pdfId)
+    }
+
+    suspend fun getPodcastForPdfSync(pdfId: Long): PodcastEntity? {
+        return db.podcastDao().getPodcastForPdfSync(pdfId)
+    }
+
+    suspend fun insertPodcast(podcast: PodcastEntity): Long {
+        return db.podcastDao().insertPodcast(podcast)
+    }
+
+    suspend fun updatePodcast(podcast: PodcastEntity) {
+        db.podcastDao().updatePodcast(podcast)
+    }
+
+    suspend fun updatePodcastPlaybackPosition(podcastId: Long, positionMs: Long) {
+        db.podcastDao().updatePlaybackPosition(podcastId, positionMs)
+    }
+
+    suspend fun deletePodcastByPdfId(pdfId: Long) {
+        val existing = db.podcastDao().getPodcastForPdfSync(pdfId)
+        if (existing != null) {
+            try {
+                val file = File(existing.localAudioPath)
+                if (file.exists()) file.delete()
+            } catch (_: Exception) {}
+            db.podcastDao().deletePodcast(existing)
+        }
     }
 
     // Export / Import

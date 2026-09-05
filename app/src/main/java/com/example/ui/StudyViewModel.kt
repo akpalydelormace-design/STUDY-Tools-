@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.audio.PodcastPlayerManager
+import com.example.data.audio.PodcastPlayerState
 import com.example.data.local.StudyDatabase
 import com.example.data.model.AgendaEventEntity
 import com.example.data.model.GradeEntity
@@ -13,20 +15,25 @@ import com.example.data.model.HistoryTypes
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
+import com.example.data.model.PodcastEntity
 import com.example.data.model.SubjectEntity
 import com.example.data.model.CanvasData
 import com.example.data.model.CanvasElement
 import com.example.data.model.NoteTypes
 import com.example.data.pdf.PdfHelper
 import com.example.data.pdf.PdfSearchResult
+import com.example.data.remote.GeminiPodcastService
 import com.example.data.repository.StudyRepository
 import com.example.domain.GradeCalculator
 import com.example.domain.TrimestreReport
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -202,6 +209,140 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         _pdfErrorMessage.value = null
     }
 
+    // ==========================================
+    // PODCAST IA STATE & SERVICES
+    // ==========================================
+    private val geminiPodcastService = GeminiPodcastService(application)
+    val podcastPlayerManager = PodcastPlayerManager(application).apply {
+        setOnPositionSavedListener { podcastId, positionMs ->
+            viewModelScope.launch {
+                repository.updatePodcastPlaybackPosition(podcastId, positionMs)
+            }
+        }
+    }
+
+    val podcastPlayerState: StateFlow<PodcastPlayerState> = podcastPlayerManager.playerState
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val activePdfPodcast: StateFlow<PodcastEntity?> = _activePdf.flatMapLatest { pdf ->
+        if (pdf != null) {
+            repository.getPodcastForPdf(pdf.id)
+        } else {
+            flowOf(null)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _isGeneratingPodcast = MutableStateFlow(false)
+    val isGeneratingPodcast: StateFlow<Boolean> = _isGeneratingPodcast.asStateFlow()
+
+    private val _podcastProgressStatus = MutableStateFlow("")
+    val podcastProgressStatus: StateFlow<String> = _podcastProgressStatus.asStateFlow()
+
+    private val _podcastErrorMessage = MutableStateFlow<String?>(null)
+    val podcastErrorMessage: StateFlow<String?> = _podcastErrorMessage.asStateFlow()
+
+    fun clearPodcastErrorMessage() {
+        _podcastErrorMessage.value = null
+    }
+
+    fun generatePodcastForCurrentPdf() {
+        val pdf = _activePdf.value ?: return
+        val pdfFile = File(pdf.localFilePath)
+        if (!pdfFile.exists()) {
+            _podcastErrorMessage.value = "Fichier PDF local introuvable."
+            return
+        }
+
+        if (_isGeneratingPodcast.value) return
+
+        viewModelScope.launch {
+            _isGeneratingPodcast.value = true
+            _podcastErrorMessage.value = null
+            _podcastProgressStatus.value = "Préparation..."
+
+            val result = geminiPodcastService.generatePodcastFromPdf(
+                pdfFile = pdfFile,
+                pdfTitle = pdf.title,
+                pdfId = pdf.id,
+                onProgress = { status ->
+                    _podcastProgressStatus.value = status
+                }
+            )
+
+            if (result.isSuccess && result.audioFile != null) {
+                val podcast = PodcastEntity(
+                    pdfId = pdf.id,
+                    title = "Podcast — ${pdf.title}",
+                    durationMs = result.durationMs,
+                    localAudioPath = result.audioFile.absolutePath,
+                    script = result.scriptJson,
+                    modelUsed = "gemini-2.5-flash-preview-tts",
+                    status = "COMPLETED"
+                )
+                repository.insertPodcast(podcast)
+                repository.recordHistory(
+                    resourceType = HistoryTypes.PDF,
+                    resourceId = pdf.id.toString(),
+                    title = pdf.title,
+                    subtitle = "Podcast IA généré",
+                    actionType = "PODCAST_GENERATED",
+                    extraData = result.audioFile.absolutePath
+                )
+                _podcastProgressStatus.value = "Podcast généré avec succès !"
+
+                // Auto-start playback
+                podcastPlayerManager.prepareAndPlay(
+                    podcastId = podcast.id,
+                    audioFilePath = result.audioFile.absolutePath,
+                    startPositionMs = 0L,
+                    autoPlay = true
+                )
+            } else {
+                _podcastErrorMessage.value = result.errorMessage ?: "Échec de la génération du podcast."
+            }
+
+            _isGeneratingPodcast.value = false
+        }
+    }
+
+    fun togglePodcastPlayPause() {
+        val podcast = activePdfPodcast.value
+        val playerState = podcastPlayerState.value
+
+        if (podcast == null) return
+
+        if (!playerState.isPrepared || playerState.currentPodcastId != podcast.id) {
+            podcastPlayerManager.prepareAndPlay(
+                podcastId = podcast.id,
+                audioFilePath = podcast.localAudioPath,
+                startPositionMs = podcast.playbackPositionMs,
+                autoPlay = true
+            )
+        } else {
+            podcastPlayerManager.togglePlayPause()
+        }
+    }
+
+    fun seekPodcastTo(positionMs: Long) {
+        podcastPlayerManager.seekTo(positionMs)
+    }
+
+    fun rewindPodcast10s() {
+        podcastPlayerManager.rewind10Seconds()
+    }
+
+    fun forwardPodcast10s() {
+        podcastPlayerManager.forward10Seconds()
+    }
+
+    fun deletePodcastForCurrentPdf() {
+        val pdf = _activePdf.value ?: return
+        viewModelScope.launch {
+            podcastPlayerManager.release()
+            repository.deletePodcastByPdfId(pdf.id)
+        }
+    }
+
     private var pdfPagesTextCache = mapOf<Int, String>()
 
     fun openPdf(pdf: PdfDocumentEntity, initialPage: Int? = null) {
@@ -264,6 +405,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
                 repository.updatePdfLastPage(pdf.id, page)
             }
         }
+        podcastPlayerManager.release()
         _activePdf.value = null
         _currentPdfBitmap.value = null
         pdfPagesTextCache = emptyMap()

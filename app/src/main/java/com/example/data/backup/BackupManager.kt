@@ -8,6 +8,7 @@ import com.example.data.model.HistoryEntity
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
+import com.example.data.model.PodcastEntity
 import com.example.data.model.SubjectEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -176,6 +177,28 @@ object BackupManager {
             settingsArray.put(obj)
         }
         root.put("appSettings", settingsArray)
+
+        // 9. Podcasts
+        val podcasts = db.podcastDao().getAllPodcastsList()
+        val podcastsArray = JSONArray()
+        for (p in podcasts) {
+            val obj = JSONObject().apply {
+                put("id", p.id)
+                put("pdfId", p.pdfId)
+                put("title", p.title)
+                put("durationMs", p.durationMs)
+                put("localAudioPath", p.localAudioPath)
+                put("createdAt", p.createdAt)
+                put("status", p.status)
+                put("script", p.script)
+                put("modelUsed", p.modelUsed)
+                put("segmentCount", p.segmentCount)
+                put("playbackPositionMs", p.playbackPositionMs)
+                put("lastListenedAt", p.lastListenedAt)
+            }
+            podcastsArray.put(obj)
+        }
+        root.put("podcasts", podcastsArray)
 
         root.toString(2)
     }
@@ -352,6 +375,29 @@ object BackupManager {
                     val key = obj.getString("key")
                     val value = obj.getString("value")
                     db.settingsDao().setSetting(AppSettingsEntity(key, value))
+                }
+            }
+
+            // Podcasts (backward compatible)
+            if (root.has("podcasts")) {
+                val array = root.getJSONArray("podcasts")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val p = PodcastEntity(
+                        id = obj.optLong("id", 0L),
+                        pdfId = obj.getLong("pdfId"),
+                        title = obj.getString("title"),
+                        durationMs = obj.optLong("durationMs", 0L),
+                        localAudioPath = obj.optString("localAudioPath", ""),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        status = obj.optString("status", "COMPLETED"),
+                        script = obj.optString("script", ""),
+                        modelUsed = obj.optString("modelUsed", "gemini-2.5-flash-preview-tts"),
+                        segmentCount = obj.optInt("segmentCount", 1),
+                        playbackPositionMs = obj.optLong("playbackPositionMs", 0L),
+                        lastListenedAt = obj.optLong("lastListenedAt", System.currentTimeMillis())
+                    )
+                    db.podcastDao().insertPodcast(p)
                 }
             }
 

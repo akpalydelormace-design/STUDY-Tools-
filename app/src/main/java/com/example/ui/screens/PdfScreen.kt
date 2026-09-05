@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.PdfDocumentEntity
 import com.example.ui.StudyViewModel
 import com.example.ui.components.EmptyStateCard
+import com.example.ui.components.PodcastPlayerView
 import com.example.ui.components.formatTimestampToDate
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.PrimaryIndigo
@@ -544,6 +545,9 @@ fun PdfReaderView(
                 )
             }
         }
+
+        // Integrated Podcast IA Player
+        PodcastPlayerView(viewModel = viewModel, pdf = pdf)
 
         // Bottom Navigation Bar for PDF
         Surface(

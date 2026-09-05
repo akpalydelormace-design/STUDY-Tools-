@@ -15,6 +15,7 @@ import com.example.data.model.Note
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
+import com.example.data.model.PodcastEntity
 import com.example.data.model.SubjectEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -275,6 +276,33 @@ interface HistoryDao {
     // Clean up oldest items if exceeding limit (e.g. 60)
     @Query("DELETE FROM history_entries WHERE id NOT IN (SELECT id FROM history_entries ORDER BY timestamp DESC LIMIT 60)")
     suspend fun trimOldEntries()
+}
+
+@Dao
+interface PodcastDao {
+    @Query("SELECT * FROM podcasts WHERE pdfId = :pdfId LIMIT 1")
+    fun getPodcastForPdf(pdfId: Long): Flow<PodcastEntity?>
+
+    @Query("SELECT * FROM podcasts WHERE pdfId = :pdfId LIMIT 1")
+    suspend fun getPodcastForPdfSync(pdfId: Long): PodcastEntity?
+
+    @Query("SELECT * FROM podcasts ORDER BY createdAt DESC")
+    suspend fun getAllPodcastsList(): List<PodcastEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPodcast(podcast: PodcastEntity): Long
+
+    @Update
+    suspend fun updatePodcast(podcast: PodcastEntity)
+
+    @Delete
+    suspend fun deletePodcast(podcast: PodcastEntity)
+
+    @Query("DELETE FROM podcasts WHERE pdfId = :pdfId")
+    suspend fun deletePodcastByPdfId(pdfId: Long)
+
+    @Query("UPDATE podcasts SET playbackPositionMs = :position, lastListenedAt = :timestamp WHERE id = :id")
+    suspend fun updatePlaybackPosition(id: Long, position: Long, timestamp: Long = System.currentTimeMillis())
 }
 
 

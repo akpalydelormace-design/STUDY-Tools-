@@ -132,7 +132,29 @@ object HistoryTypes {
     const val MIND_MAP = "MIND_MAP"
     const val AGENDA = "AGENDA"
     const val BULLETIN = "BULLETIN"
+    const val PODCAST = "PODCAST"
 }
+
+@Entity(
+    tableName = "podcasts",
+    indices = [
+        androidx.room.Index(value = ["pdfId"], unique = true)
+    ]
+)
+data class PodcastEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val pdfId: Long,
+    val title: String,
+    val durationMs: Long = 0L,
+    val localAudioPath: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val status: String = "COMPLETED", // GENERATING, COMPLETED, FAILED
+    val script: String = "",
+    val modelUsed: String = "gemini-2.5-flash-preview-tts",
+    val segmentCount: Int = 1,
+    val playbackPositionMs: Long = 0L,
+    val lastListenedAt: Long = System.currentTimeMillis()
+)
 
 @Entity(
     tableName = "history_entries",

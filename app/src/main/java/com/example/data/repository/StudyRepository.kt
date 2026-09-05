@@ -12,6 +12,7 @@ import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
 import com.example.data.model.PdfDocumentEntity
 import com.example.data.model.SubjectEntity
+import com.example.domain.GradeCalculator
 import com.example.data.pdf.PdfHelper
 import com.example.data.receiver.NotificationHelper
 import kotlinx.coroutines.flow.Flow
@@ -113,8 +114,12 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
         coefficient: Float,
         evaluationType: String,
         date: Long,
-        comment: String
+        comment: String,
+        schoolYear: String = GradeEntity.UNSPECIFIED_SCHOOL_YEAR
     ): Long {
+        require(GradeCalculator.validateGrade(score, outOf, coefficient, trimestre, schoolYear).isValid) {
+            GradeCalculator.validateGrade(score, outOf, coefficient, trimestre, schoolYear).message
+        }
         return db.gradeDao().insertGrade(
             GradeEntity(
                 subjectId = subjectId,
@@ -125,12 +130,16 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
                 coefficient = coefficient,
                 evaluationType = evaluationType,
                 date = date,
-                comment = comment.trim()
+                comment = comment.trim(),
+                schoolYear = schoolYear.trim()
             )
         )
     }
 
     suspend fun updateGrade(grade: GradeEntity) {
+        require(GradeCalculator.validateGrade(grade.score, grade.outOf, grade.coefficient, grade.trimestre, grade.schoolYear).isValid) {
+            GradeCalculator.validateGrade(grade.score, grade.outOf, grade.coefficient, grade.trimestre, grade.schoolYear).message
+        }
         db.gradeDao().updateGrade(grade)
     }
 

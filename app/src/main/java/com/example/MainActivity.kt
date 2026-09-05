@@ -275,7 +275,7 @@ fun MainStudyApp(viewModel: StudyViewModel) {
             presetSubject = null,
             currentTrimestre = selectedTrimestre,
             onDismiss = { showAddGradeDialog = false },
-            onConfirm = { subjectId, subjectName, trim, score, outOf, coef, type, comment ->
+            onConfirm = { subjectId, subjectName, trim, score, outOf, coef, type, comment, schoolYear ->
                 viewModel.addGrade(
                     subjectId = subjectId,
                     subjectName = subjectName,
@@ -285,7 +285,8 @@ fun MainStudyApp(viewModel: StudyViewModel) {
                     coefficient = coef,
                     evaluationType = type,
                     date = System.currentTimeMillis(),
-                    comment = comment
+                    comment = comment,
+                    schoolYear = schoolYear
                 )
             }
         )

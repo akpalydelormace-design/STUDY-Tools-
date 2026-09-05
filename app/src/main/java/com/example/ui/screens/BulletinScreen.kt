@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Settings
@@ -88,10 +89,12 @@ fun BulletinScreen(
     val report by viewModel.currentTrimestreReport.collectAsState()
     val allReports by viewModel.allTrimestresReports.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
+    val selectedSchoolYear by viewModel.selectedSchoolYear.collectAsState()
 
     var showAddGradeDialog by remember { mutableStateOf(false) }
     var presetSubjectForGrade by remember { mutableStateOf<SubjectEntity?>(null) }
     var gradeToDelete by remember { mutableStateOf<GradeEntity?>(null) }
+    var gradeToEdit by remember { mutableStateOf<GradeEntity?>(null) }
 
     // Progression
     val currentAvg = report.generalAverage
@@ -130,7 +133,7 @@ fun BulletinScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Moyennes pondérées & coefficients officiels",
+                            text = "Moyennes pondérées avec tes coefficients configurés",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -162,6 +165,15 @@ fun BulletinScreen(
 
             // Trimestre TabRow
             item {
+                OutlinedTextField(
+                    value = selectedSchoolYear,
+                    onValueChange = viewModel::setSelectedSchoolYear,
+                    label = { Text("Année scolaire") },
+                    placeholder = { Text("ex. 2025-2026") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("school_year_input")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 TabRow(
                     selectedTabIndex = selectedTrimestre - 1,
                     containerColor = MaterialTheme.colorScheme.background,
@@ -347,7 +359,8 @@ fun BulletinScreen(
                             presetSubjectForGrade = subjects.firstOrNull { it.id == subjSummary.subjectId }
                             showAddGradeDialog = true
                         },
-                        onDeleteGrade = { gradeToDelete = it }
+                        onDeleteGrade = { gradeToDelete = it },
+                        onEditGrade = { gradeToEdit = it }
                     )
                 }
             }
@@ -376,8 +389,9 @@ fun BulletinScreen(
             subjects = subjects,
             presetSubject = presetSubjectForGrade,
             currentTrimestre = selectedTrimestre,
+            schoolYear = selectedSchoolYear,
             onDismiss = { showAddGradeDialog = false },
-            onConfirm = { subjectId, subjectName, trim, score, outOf, coef, type, comment ->
+            onConfirm = { subjectId, subjectName, trim, score, outOf, coef, type, comment, schoolYear ->
                 viewModel.addGrade(
                     subjectId = subjectId,
                     subjectName = subjectName,
@@ -387,9 +401,29 @@ fun BulletinScreen(
                     coefficient = coef,
                     evaluationType = type,
                     date = System.currentTimeMillis(),
-                    comment = comment
+                    comment = comment,
+                    schoolYear = schoolYear
                 )
                 showAddGradeDialog = false
+            }
+        )
+    }
+
+    if (gradeToEdit != null) {
+        AddGradeDialog(
+            subjects = subjects,
+            presetSubject = subjects.firstOrNull { it.id == gradeToEdit?.subjectId },
+            currentTrimestre = gradeToEdit!!.trimestre,
+            schoolYear = gradeToEdit!!.schoolYear,
+            initialGrade = gradeToEdit,
+            onDismiss = { gradeToEdit = null },
+            onConfirm = { subjectId, subjectName, trim, score, outOf, coef, type, comment, year ->
+                viewModel.updateGrade(gradeToEdit!!.copy(
+                    subjectId = subjectId, subjectName = subjectName, trimestre = trim,
+                    score = score, outOf = outOf, coefficient = coef, evaluationType = type,
+                    comment = comment, schoolYear = year
+                ))
+                gradeToEdit = null
             }
         )
     }
@@ -428,7 +462,8 @@ fun BulletinScreen(
 fun SubjectBulletinCard(
     summary: SubjectGradeSummary,
     onAddGrade: () -> Unit,
-    onDeleteGrade: (GradeEntity) -> Unit
+    onDeleteGrade: (GradeEntity) -> Unit,
+    onEditGrade: (GradeEntity) -> Unit
 ) {
     val colorHex = summary.subjectColor
     val parsedColor = parseHexColor(colorHex)
@@ -525,7 +560,7 @@ fun SubjectBulletinCard(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "${GradeCalculator.formatScore(grade.score)}/${grade.outOf.toInt()}",
+                                        text = "${GradeCalculator.formatScore(grade.score)}/${GradeCalculator.formatScore(grade.outOf)} • ${GradeCalculator.formatScore(GradeCalculator.normalizeToTwenty(grade.score, grade.outOf))}/20",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -549,9 +584,21 @@ fun SubjectBulletinCard(
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = formatTimestampToDate(grade.date),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { onEditGrade(grade) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Modifier", modifier = Modifier.size(16.dp))
+                                    }
                                     if (grade.comment.isNotBlank()) {
                                         Text(
                                             text = grade.comment,
@@ -617,7 +664,9 @@ fun AddGradeDialog(
     subjects: List<SubjectEntity>,
     presetSubject: SubjectEntity?,
     currentTrimestre: Int,
+    schoolYear: String = GradeCalculator.currentSchoolYear(),
     onDismiss: () -> Unit,
+    initialGrade: GradeEntity? = null,
     onConfirm: (
         subjectId: Long,
         subjectName: String,
@@ -626,24 +675,27 @@ fun AddGradeDialog(
         outOf: Float,
         coefficient: Float,
         evaluationType: String,
-        comment: String
+        comment: String,
+        schoolYear: String
     ) -> Unit
 ) {
     var selectedSubject by remember {
         mutableStateOf(presetSubject ?: subjects.firstOrNull())
     }
-    var scoreInput by remember { mutableStateOf("") }
-    var outOfInput by remember { mutableStateOf("20") }
-    var coefInput by remember { mutableStateOf("1") }
-    var evaluationType by remember { mutableStateOf("Contrôle") }
+    var scoreInput by remember { mutableStateOf(initialGrade?.score?.toString() ?: "") }
+    var outOfInput by remember { mutableStateOf(initialGrade?.outOf?.toString() ?: "20") }
+    var coefInput by remember { mutableStateOf(initialGrade?.coefficient?.toString() ?: "1") }
+    var evaluationType by remember { mutableStateOf(initialGrade?.evaluationType ?: "Contrôle") }
     var trimestre by remember { mutableIntStateOf(currentTrimestre) }
-    var comment by remember { mutableStateOf("") }
+    var comment by remember { mutableStateOf(initialGrade?.comment ?: "") }
+    var yearInput by remember { mutableStateOf(schoolYear) }
+    var validationError by remember { mutableStateOf<String?>(null) }
 
     val evalTypes = listOf("Contrôle", "Devoir", "Interrogation", "Examen", "Oral", "TP")
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ajouter une note") },
+        title = { Text(if (initialGrade == null) "Ajouter une note" else "Modifier la note") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Subject selection
@@ -662,6 +714,13 @@ fun AddGradeDialog(
 
                 // Trimestre
                 item {
+                    OutlinedTextField(
+                        value = yearInput,
+                        onValueChange = { yearInput = it },
+                        label = { Text("Année scolaire *") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Text("Trimestre :", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(1, 2, 3).forEach { t ->
@@ -700,6 +759,7 @@ fun AddGradeDialog(
                         )
                     }
                 }
+                if (validationError != null) item { Text(validationError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
 
                 // Coefficient
                 item {
@@ -745,19 +805,28 @@ fun AddGradeDialog(
             Button(
                 onClick = {
                     val score = scoreInput.replace(",", ".").toFloatOrNull()
-                    val outOf = outOfInput.replace(",", ".").toFloatOrNull() ?: 20f
-                    val coef = coefInput.replace(",", ".").toFloatOrNull() ?: 1f
+                    val outOf = outOfInput.replace(",", ".").toFloatOrNull()
+                    val coef = coefInput.replace(",", ".").toFloatOrNull()
                     val subj = selectedSubject
-                    if (score != null && subj != null) {
+                    val validation = if (score == null || outOf == null || coef == null) null else
+                        GradeCalculator.validateGrade(score, outOf, coef, trimestre, yearInput.trim())
+                    validationError = when {
+                        subj == null -> "Choisis une matière."
+                        validation == null -> "La note, le barème et le coefficient doivent être des nombres valides."
+                        !validation.isValid -> validation.message
+                        else -> null
+                    }
+                    if (subj != null && validation?.isValid == true) {
                         onConfirm(
                             subj.id,
                             subj.name,
                             trimestre,
-                            score,
-                            outOf,
-                            coef,
+                            score!!,
+                            outOf!!,
+                            coef!!,
                             evaluationType,
-                            comment.trim()
+                            comment.trim(),
+                            yearInput.trim()
                         )
                     }
                 },

@@ -53,6 +53,7 @@ object BackupManager {
                 put("evaluationType", g.evaluationType)
                 put("date", g.date)
                 put("comment", g.comment)
+                put("schoolYear", g.schoolYear)
             }
             gradesArray.put(obj)
         }
@@ -209,7 +210,8 @@ object BackupManager {
                             coefficient = obj.optDouble("coefficient", 1.0).toFloat(),
                             evaluationType = obj.optString("evaluationType", "Devoir"),
                             date = obj.optLong("date", System.currentTimeMillis()),
-                            comment = obj.optString("comment", "")
+                            comment = obj.optString("comment", ""),
+                            schoolYear = obj.optString("schoolYear", GradeEntity.UNSPECIFIED_SCHOOL_YEAR)
                         )
                     )
                 }

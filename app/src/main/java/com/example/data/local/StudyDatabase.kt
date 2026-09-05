@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
         AppSettingsEntity::class,
         HistoryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class StudyDatabase : RoomDatabase() {
@@ -76,14 +76,23 @@ abstract class StudyDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Existing grades are preserved. Their school year is explicitly marked as
+         * unknown rather than guessed from an arbitrary official configuration.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE grades ADD COLUMN schoolYear TEXT NOT NULL DEFAULT 'Non renseignée'")
+            }
+        }
+
         fun getInstance(context: Context): StudyDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     StudyDatabase::class.java,
                     "study_tools.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4)
-                .fallbackToDestructiveMigration()
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
@@ -124,4 +133,3 @@ abstract class StudyDatabase : RoomDatabase() {
 }
 
 typealias AppDatabase = StudyDatabase
-

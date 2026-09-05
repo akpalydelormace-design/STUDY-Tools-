@@ -164,14 +164,13 @@ fun SubjectManagerDialog(
     if (subjectToEdit != null) {
         val editing = subjectToEdit!!
         var coefStr by remember { mutableStateOf(editing.coefficient.toInt().toString()) }
-        var coefficientError by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
             onDismissRequest = { subjectToEdit = null },
             title = { Text("Modifier ${editing.name}") },
             text = {
                 Column {
-                    Text("Coefficient de matière pour ${editing.name} :")
+                    Text("Nouveau coefficient pour ${editing.name} :")
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = coefStr,
@@ -180,18 +179,15 @@ fun SubjectManagerDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (coefficientError != null) Text(coefficientError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
             },
             confirmButton = {
                 Button(onClick = {
                     val newCoef = coefStr.toFloatOrNull()
-                    if (newCoef != null && newCoef > 0f) {
+                    if (newCoef != null && newCoef > 0) {
                         viewModel.updateSubject(editing.copy(coefficient = newCoef))
-                        subjectToEdit = null
-                    } else {
-                        coefficientError = "Le coefficient de la matière doit être strictement supérieur à 0."
                     }
+                    subjectToEdit = null
                 }) {
                     Text("Enregistrer")
                 }
@@ -207,8 +203,7 @@ fun SubjectManagerDialog(
     // Add Subject Dialog
     if (showAddSubjectDialog) {
         var newSubjName by remember { mutableStateOf("") }
-        var newSubjCoef by remember { mutableStateOf("") }
-        var coefficientError by remember { mutableStateOf<String?>(null) }
+        var newSubjCoef by remember { mutableStateOf("2") }
         var selectedColorHex by remember { mutableStateOf("#4F46E5") }
         val colorPalette = listOf(
             "#4F46E5", "#0284C7", "#10B981", "#F59E0B", "#F43F5E",
@@ -232,13 +227,12 @@ fun SubjectManagerDialog(
                     OutlinedTextField(
                         value = newSubjCoef,
                         onValueChange = { newSubjCoef = it },
-                        label = { Text("Coefficient de la matière *") },
-                        placeholder = { Text("ex: 2") },
+                        label = { Text("Coefficient officiel") },
+                        placeholder = { Text("2") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (coefficientError != null) Text(coefficientError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
                     Text("Couleur associée :", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,12 +257,8 @@ fun SubjectManagerDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        val coef = newSubjCoef.replace(",", ".").toFloatOrNull()
-                        if (newSubjName.isBlank()) {
-                            coefficientError = "Le nom de la matière est obligatoire."
-                        } else if (coef == null || coef <= 0f) {
-                            coefficientError = "Le coefficient de la matière doit être strictement supérieur à 0."
-                        } else {
+                        val coef = newSubjCoef.toFloatOrNull() ?: 1f
+                        if (newSubjName.isNotBlank()) {
                             viewModel.addSubject(
                                 name = newSubjName.trim(),
                                 coefficient = coef,

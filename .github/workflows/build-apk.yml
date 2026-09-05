@@ -70,7 +70,7 @@ jobs:
         run: ./gradlew test
 
       - name: Générer l'APK de débogage
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
       - name: Vérifier l'APK
         run: |

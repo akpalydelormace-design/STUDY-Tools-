@@ -194,6 +194,9 @@ interface SettingsDao {
     @Query("SELECT * FROM app_settings")
     fun getAllSettings(): Flow<List<AppSettingsEntity>>
 
+    @Query("SELECT * FROM app_settings")
+    suspend fun getAllSettingsList(): List<AppSettingsEntity>
+
     @Query("SELECT value FROM app_settings WHERE key = :key LIMIT 1")
     suspend fun getSettingValue(key: String): String?
 

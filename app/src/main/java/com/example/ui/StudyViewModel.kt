@@ -155,13 +155,19 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         emptyMap()
     )
 
-    // Overall General Average across all available grades
-    val generalAverageAcrossTrimestres: StateFlow<Float?> = currentTrimestreReport.combine(allTrimestresReports) { curr, all ->
-        val gradedTrimestres = all.values.mapNotNull { it.generalAverage }
-        if (gradedTrimestres.isNotEmpty()) {
-            val avg = gradedTrimestres.sum() / gradedTrimestres.size
-            GradeCalculator.roundToTwoDecimals(avg)
-        } else null
+    // Trimestre coefficients (user-configurable)
+    val trimestreCoefficients: StateFlow<Map<Int, Float>> = repository.trimestreCoefficients.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        mapOf(1 to 1.0f, 2 to 1.0f, 3 to 1.0f)
+    )
+
+    // Overall General Annual Average across all available trimestres weighted by trimestre coefficients
+    val generalAverageAcrossTrimestres: StateFlow<Float?> = combine(
+        allTrimestresReports,
+        trimestreCoefficients
+    ) { allReports, coefs ->
+        GradeCalculator.calculateAnnualAverage(allReports, coefs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ==========================================
@@ -310,6 +316,13 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
+            val pdf = _activePdf.value
+            if (pdfPagesTextCache.isEmpty() && pdf != null) {
+                val file = File(pdf.localFilePath)
+                if (file.exists()) {
+                    pdfPagesTextCache = PdfHelper.extractTextByPages(file)
+                }
+            }
             val results = PdfHelper.searchInPages(pdfPagesTextCache, query)
             _pdfSearchResults.value = results
             _currentPdfSearchMatchIndex.value = 0
@@ -415,13 +428,25 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     // ==========================================
     // SUBJECTS & GRADES ACTIONS
     // ==========================================
+    fun updateTrimestreCoefficient(trimestre: Int, coefficient: Float) {
+        val validation = GradeCalculator.validateTrimestreCoefficient(coefficient)
+        require(validation.isValid) { validation.message ?: "Coefficient du trimestre invalide" }
+        viewModelScope.launch {
+            repository.setTrimestreCoefficient(trimestre, coefficient)
+        }
+    }
+
     fun addSubject(name: String, coefficient: Float, colorHex: String, iconName: String = "School") {
+        val validation = GradeCalculator.validateSubjectCoefficient(coefficient)
+        require(validation.isValid) { validation.message ?: "Coefficient de la matière invalide" }
         viewModelScope.launch {
             repository.addSubject(name, coefficient, colorHex, iconName)
         }
     }
 
     fun updateSubject(subject: SubjectEntity) {
+        val validation = GradeCalculator.validateSubjectCoefficient(subject.coefficient)
+        require(validation.isValid) { validation.message ?: "Coefficient de la matière invalide" }
         viewModelScope.launch {
             repository.updateSubject(subject)
         }

@@ -7,6 +7,7 @@ import com.example.data.local.StudyDatabase
 import com.example.data.model.AgendaEventEntity
 import com.example.data.model.GradeEntity
 import com.example.data.model.HistoryEntity
+import com.example.data.model.AppSettingsEntity
 import com.example.data.model.HistoryTypes
 import com.example.data.model.NoteEntity
 import com.example.data.model.NotebookEntity
@@ -16,6 +17,7 @@ import com.example.domain.GradeCalculator
 import com.example.data.pdf.PdfHelper
 import com.example.data.receiver.NotificationHelper
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.io.File
 
 class StudyRepository(private val context: Context, private val db: StudyDatabase) {
@@ -29,6 +31,25 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
     val recentPdfs: Flow<List<PdfDocumentEntity>> = db.pdfDao().getRecentPdfs(5)
     val recentHistory: Flow<List<HistoryEntity>> = db.historyDao().getRecentHistory()
     fun getRecentHistoryLimited(limit: Int): Flow<List<HistoryEntity>> = db.historyDao().getRecentHistoryLimited(limit)
+
+    val trimestreCoefficients: Flow<Map<Int, Float>> = db.settingsDao().getAllSettings().map { settingsList ->
+        val map = settingsList.associate { it.key to it.value }
+        val t1 = map["trimestre_1_coef"]?.toFloatOrNull() ?: 1.0f
+        val t2 = map["trimestre_2_coef"]?.toFloatOrNull() ?: 1.0f
+        val t3 = map["trimestre_3_coef"]?.toFloatOrNull() ?: 1.0f
+        mapOf(1 to t1, 2 to t2, 3 to t3)
+    }
+
+    suspend fun setTrimestreCoefficient(trimestre: Int, coefficient: Float) {
+        val validation = GradeCalculator.validateTrimestreCoefficient(coefficient)
+        require(validation.isValid) { validation.message ?: "Coefficient invalide" }
+        db.settingsDao().setSetting(
+            AppSettingsEntity(
+                key = "trimestre_${trimestre}_coef",
+                value = coefficient.toString()
+            )
+        )
+    }
 
     // History operations
     suspend fun recordHistory(

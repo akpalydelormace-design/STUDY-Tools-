@@ -90,6 +90,7 @@ fun BulletinScreen(
     val allReports by viewModel.allTrimestresReports.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
     val selectedSchoolYear by viewModel.selectedSchoolYear.collectAsState()
+    val annualAverage by viewModel.generalAverageAcrossTrimestres.collectAsState()
 
     var showAddGradeDialog by remember { mutableStateOf(false) }
     var presetSubjectForGrade by remember { mutableStateOf<SubjectEntity?>(null) }
@@ -255,13 +256,25 @@ fun BulletinScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     color = Color.White.copy(alpha = 0.2f)
                                 ) {
-                                    Text(
-                                        text = "Total coef : ${report.totalCoefficients.toInt()}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
+                                    ) {
+                                        Text(
+                                            text = "Total coef : ${GradeCalculator.formatCoefficient(report.totalCoefficients)}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        if (annualAverage != null) {
+                                            Text(
+                                                text = "Annuel : ${GradeCalculator.formatScore(annualAverage)}/20",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color.White.copy(alpha = 0.9f)
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -501,7 +514,7 @@ fun SubjectBulletinCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Coefficient ${summary.subjectCoefficient.toInt()}",
+                            text = "Coefficient ${GradeCalculator.formatCoefficient(summary.subjectCoefficient)}",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -571,7 +584,7 @@ fun SubjectBulletinCard(
                                         color = MaterialTheme.colorScheme.surfaceVariant
                                     ) {
                                         Text(
-                                            text = "coef ${grade.coefficient.toInt()}",
+                                            text = "coef ${GradeCalculator.formatCoefficient(grade.coefficient)}",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,

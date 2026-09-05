@@ -25,6 +25,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,13 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.SubjectEntity
+import com.example.domain.GradeCalculator
 import com.example.ui.StudyViewModel
 import com.example.ui.components.parseHexColor
 import com.example.ui.theme.PrimaryIndigo
@@ -58,9 +59,12 @@ fun SubjectManagerDialog(
     onDismiss: () -> Unit
 ) {
     val subjects by viewModel.subjects.collectAsState()
+    val trimestreCoefficients by viewModel.trimestreCoefficients.collectAsState()
+
     var subjectToEdit by remember { mutableStateOf<SubjectEntity?>(null) }
     var subjectToDelete by remember { mutableStateOf<SubjectEntity?>(null) }
     var showAddSubjectDialog by remember { mutableStateOf(false) }
+    var trimestreToEdit by remember { mutableStateOf<Int?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -70,7 +74,7 @@ fun SubjectManagerDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Gestion des matières", fontWeight = FontWeight.Bold)
+                Text("Gestion des coefficients", fontWeight = FontWeight.Bold)
                 Surface(
                     onClick = { showAddSubjectDialog = true },
                     shape = RoundedCornerShape(8.dp),
@@ -82,7 +86,7 @@ fun SubjectManagerDialog(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = PrimaryIndigo, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ajouter", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PrimaryIndigo)
+                        Text("Matière", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PrimaryIndigo)
                     }
                 }
             }
@@ -90,16 +94,68 @@ fun SubjectManagerDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Ajuste les coefficients de chaque matière pour que les moyennes du bulletin correspondent exactement à ta filière ou classe.",
+                    text = "Ajuste les coefficients de chaque matière et de chaque trimestre pour adapter les calculs à ta filière.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
                 LazyColumn(
-                    modifier = Modifier.height(340.dp),
+                    modifier = Modifier.height(380.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Section 1: Trimestre Coefficients
+                    item {
+                        Text(
+                            text = "Coefficients des Trimestres",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(1, 2, 3).forEach { t ->
+                                    val coef = trimestreCoefficients[t] ?: 1.0f
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Trimestre $t", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "Coef ${GradeCalculator.formatCoefficient(coef)}",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            IconButton(
+                                                onClick = { trimestreToEdit = t },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Modifier coefficient trimestre $t", modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Coefficients des Matières",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    // Section 2: Subject Coefficients
                     items(subjects, key = { it.id }) { subj ->
                         val parsedColor = parseHexColor(subj.colorHex)
                         Card(
@@ -124,7 +180,7 @@ fun SubjectManagerDialog(
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(subj.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text("Coefficient : ${subj.coefficient.toInt()}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Coefficient : ${GradeCalculator.formatCoefficient(subj.coefficient)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
 
@@ -160,10 +216,60 @@ fun SubjectManagerDialog(
         }
     )
 
+    // Edit Trimestre Coefficient Dialog
+    if (trimestreToEdit != null) {
+        val t = trimestreToEdit!!
+        val currentCoef = trimestreCoefficients[t] ?: 1.0f
+        var coefStr by remember { mutableStateOf(GradeCalculator.formatCoefficient(currentCoef)) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { trimestreToEdit = null },
+            title = { Text("Coefficient Trimestre $t") },
+            text = {
+                Column {
+                    Text("Pondération du Trimestre $t dans le calcul de la moyenne annuelle :")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = coefStr,
+                        onValueChange = { coefStr = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("trimestre_coef_input")
+                    )
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(errorMessage!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val parsed = coefStr.replace(",", ".").toFloatOrNull()
+                    val validation = if (parsed != null) GradeCalculator.validateTrimestreCoefficient(parsed)
+                        else com.example.domain.GradeValidationResult(false, "Le coefficient doit être un nombre valide.")
+                    if (validation.isValid) {
+                        viewModel.updateTrimestreCoefficient(t, parsed!!)
+                        trimestreToEdit = null
+                    } else {
+                        errorMessage = validation.message
+                    }
+                }) {
+                    Text("Enregistrer")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { trimestreToEdit = null }) {
+                    Text("Annuler")
+                }
+            }
+        )
+    }
+
     // Edit Subject Coefficient Dialog
     if (subjectToEdit != null) {
         val editing = subjectToEdit!!
-        var coefStr by remember { mutableStateOf(editing.coefficient.toInt().toString()) }
+        var coefStr by remember { mutableStateOf(GradeCalculator.formatCoefficient(editing.coefficient)) }
         var coefficientError by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
@@ -176,21 +282,26 @@ fun SubjectManagerDialog(
                     OutlinedTextField(
                         value = coefStr,
                         onValueChange = { coefStr = it },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("subject_coef_input")
                     )
-                    if (coefficientError != null) Text(coefficientError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    if (coefficientError != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(coefficientError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    val newCoef = coefStr.toFloatOrNull()
-                    if (newCoef != null && newCoef > 0f) {
-                        viewModel.updateSubject(editing.copy(coefficient = newCoef))
+                    val newCoef = coefStr.replace(",", ".").toFloatOrNull()
+                    val validation = if (newCoef != null) GradeCalculator.validateSubjectCoefficient(newCoef)
+                        else com.example.domain.GradeValidationResult(false, "Le coefficient doit être un nombre valide.")
+                    if (validation.isValid) {
+                        viewModel.updateSubject(editing.copy(coefficient = newCoef!!))
                         subjectToEdit = null
                     } else {
-                        coefficientError = "Le coefficient de la matière doit être strictement supérieur à 0."
+                        coefficientError = validation.message
                     }
                 }) {
                     Text("Enregistrer")
@@ -207,7 +318,7 @@ fun SubjectManagerDialog(
     // Add Subject Dialog
     if (showAddSubjectDialog) {
         var newSubjName by remember { mutableStateOf("") }
-        var newSubjCoef by remember { mutableStateOf("") }
+        var newSubjCoef by remember { mutableStateOf("1") }
         var coefficientError by remember { mutableStateOf<String?>(null) }
         var selectedColorHex by remember { mutableStateOf("#4F46E5") }
         val colorPalette = listOf(
@@ -234,9 +345,9 @@ fun SubjectManagerDialog(
                         onValueChange = { newSubjCoef = it },
                         label = { Text("Coefficient de la matière *") },
                         placeholder = { Text("ex: 2") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("add_subject_coef_input")
                     )
                     if (coefficientError != null) Text(coefficientError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
@@ -250,11 +361,6 @@ fun SubjectManagerDialog(
                                     .clip(CircleShape)
                                     .background(c)
                                     .clickable { selectedColorHex = hex }
-                                    .then(
-                                        if (selectedColorHex == hex) {
-                                            Modifier.clip(CircleShape)
-                                        } else Modifier
-                                    )
                             )
                         }
                     }
@@ -264,14 +370,16 @@ fun SubjectManagerDialog(
                 Button(
                     onClick = {
                         val coef = newSubjCoef.replace(",", ".").toFloatOrNull()
+                        val validation = if (coef != null) GradeCalculator.validateSubjectCoefficient(coef)
+                            else com.example.domain.GradeValidationResult(false, "Le coefficient de la matière doit être un nombre valide.")
                         if (newSubjName.isBlank()) {
                             coefficientError = "Le nom de la matière est obligatoire."
-                        } else if (coef == null || coef <= 0f) {
-                            coefficientError = "Le coefficient de la matière doit être strictement supérieur à 0."
+                        } else if (!validation.isValid) {
+                            coefficientError = validation.message
                         } else {
                             viewModel.addSubject(
                                 name = newSubjName.trim(),
-                                coefficient = coef,
+                                coefficient = coef!!,
                                 colorHex = selectedColorHex,
                                 iconName = "School"
                             )

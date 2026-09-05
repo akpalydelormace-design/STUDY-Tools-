@@ -165,6 +165,18 @@ object BackupManager {
         }
         root.put("historyEntries", historyArray)
 
+        // 8. Settings / Coefficients
+        val settings = db.settingsDao().getAllSettingsList()
+        val settingsArray = JSONArray()
+        for (s in settings) {
+            val obj = JSONObject().apply {
+                put("key", s.key)
+                put("value", s.value)
+            }
+            settingsArray.put(obj)
+        }
+        root.put("appSettings", settingsArray)
+
         root.toString(2)
     }
 
@@ -329,6 +341,17 @@ object BackupManager {
                 }
                 if (historyList.isNotEmpty()) {
                     db.historyDao().insertAll(historyList)
+                }
+            }
+
+            // Settings / Coefficients (backward compatible)
+            if (root.has("appSettings")) {
+                val array = root.getJSONArray("appSettings")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val key = obj.getString("key")
+                    val value = obj.getString("value")
+                    db.settingsDao().setSetting(AppSettingsEntity(key, value))
                 }
             }
 

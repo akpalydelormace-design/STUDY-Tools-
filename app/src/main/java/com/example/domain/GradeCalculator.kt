@@ -50,6 +50,16 @@ object GradeCalculator {
         else -> GradeValidationResult(true)
     }
 
+    fun validateSubjectCoefficient(coefficient: Float): GradeValidationResult = when {
+        !coefficient.isFinite() || coefficient <= 0f -> GradeValidationResult(false, "Le coefficient de la matière doit être strictement supérieur à 0.")
+        else -> GradeValidationResult(true)
+    }
+
+    fun validateTrimestreCoefficient(coefficient: Float): GradeValidationResult = when {
+        !coefficient.isFinite() || coefficient <= 0f -> GradeValidationResult(false, "Le coefficient du trimestre doit être strictement supérieur à 0.")
+        else -> GradeValidationResult(true)
+    }
+
     fun normalizeToTwenty(score: Float, outOf: Float): Float? {
         if (!score.isFinite() || !outOf.isFinite() || score < 0f || outOf <= 0f || score > outOf) return null
         return roundToTwoDecimals(score / outOf * 20f)
@@ -75,6 +85,24 @@ object GradeCalculator {
         if (totalCoefficient <= 0.0) return null
         val weighted = gradedSubjects.sumOf { (it.averageScore ?: 0f).toDouble() * it.subjectCoefficient }
         return roundToTwoDecimals((weighted / totalCoefficient).toFloat())
+    }
+
+    fun calculateAnnualAverage(
+        trimestreReports: Map<Int, TrimestreReport>,
+        trimestreCoefficients: Map<Int, Float>
+    ): Float? {
+        val validTrimestres = trimestreReports.mapNotNull { (trimestre, report) ->
+            val avg = report.generalAverage ?: return@mapNotNull null
+            val coef = trimestreCoefficients[trimestre] ?: 1.0f
+            if (coef > 0f && coef.isFinite()) {
+                Pair(avg, coef)
+            } else null
+        }
+        if (validTrimestres.isEmpty()) return null
+        val totalCoef = validTrimestres.sumOf { it.second.toDouble() }
+        if (totalCoef <= 0.0) return null
+        val weightedSum = validTrimestres.sumOf { (avg, coef) -> avg.toDouble() * coef }
+        return roundToTwoDecimals((weightedSum / totalCoef).toFloat())
     }
 
     fun buildTrimestreReport(
@@ -107,4 +135,7 @@ object GradeCalculator {
     fun roundToTwoDecimals(value: Float): Float = kotlin.math.round(value * 100) / 100f
 
     fun formatScore(score: Float?): String = score?.let { String.format(Locale.FRANCE, "%.2f", it) } ?: "--"
+
+    fun formatCoefficient(coef: Float): String =
+        if (coef % 1f == 0f) coef.toInt().toString() else String.format(Locale.US, "%.2f", coef).trimEnd('0').trimEnd('.')
 }

@@ -44,6 +44,15 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Vérifier et préparer le Gradle Wrapper
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            echo "::error::Le fichier gradlew est manquant à la racine du dépôt"
+            exit 1
+          fi
+          chmod +x ./gradlew
+          ./gradlew --version
+
       - name: Créer un magasin de clés de débogage temporaire
         run: |
           if [ ! -f "./debug.keystore" ]; then
@@ -56,6 +65,9 @@ jobs:
             echo "::error::Échec de la création du magasin de clés de débogage"
             exit 1
           fi
+
+      - name: Exécuter les tests unitaires
+        run: ./gradlew test
 
       - name: Générer l'APK de débogage
         run: gradle :app:assembleDebug --stacktrace --no-daemon
@@ -99,8 +111,8 @@ jobs:
             echo "::error::Échec de la préparation du fichier APK pour la publication"
             exit 1
           fi
-          echo "asset_path=$TARGET_PATH" >> $GITHUB_OUTPUT
-          echo "asset_name=$RELEASE_APK_NAME" >> $GITHUB_OUTPUT
+          echo "asset_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$RELEASE_APK_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Publier l'APK sur GitHub Releases
         id: create_release
@@ -116,20 +128,22 @@ jobs:
           fi
           TAG_NAME="debug-apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
           RELEASE_TITLE="Débogage de la version APK #${{ github.run_number }}"
-          
-          NOTES="### APK de débogage généré automatiquement
 
-- **Généré par** : GitHub Actions
-- **Numéro d'exécution** : #${{ github.run_number }}
-- **Tentative d'exécution** : #${{ github.run_attempt }}
-- **SHA du commit source** : \`${{ github.sha }}\`
+          cat << 'EOF' > release_notes.md
+          ### APK de débogage généré automatiquement
 
-> **Note de test** : Il s'agit d'un fichier APK de débogage destiné uniquement aux tests. Il est signé avec un magasin de clés de débogage temporaire et n'est pas destiné à une publication sur le Play Store."
+          - **Généré par** : GitHub Actions
+          - **Numéro d'exécution** : #${{ github.run_number }}
+          - **Tentative d'exécution** : #${{ github.run_attempt }}
+          - **SHA du commit source** : `${{ github.sha }}`
+
+          > **Note de test** : Il s'agit d'un fichier APK de débogage destiné uniquement aux tests. Il est signé avec un magasin de clés de débogage temporaire et n'est pas destiné à une publication sur le Play Store.
+          EOF
 
           gh release create "$TAG_NAME" "$ASSET_PATH" \
             --title "$RELEASE_TITLE" \
             --target "${{ github.sha }}" \
-            --notes "$NOTES" \
+            --notes-file release_notes.md \
             --latest
 
       - name: Résultat du téléchargement de l'APK du rapport
@@ -139,7 +153,7 @@ jobs:
         run: |
           TAG_NAME="debug-apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
           ASSET_NAME="${{ steps.prep_release.outputs.asset_name }}"
-          
+
           if [ "${{ steps.create_release.outcome }}" = "success" ]; then
             echo "=== PUBLICATION RÉUSSIE ==="
             gh release view "$TAG_NAME" || true
@@ -148,18 +162,18 @@ jobs:
             echo "Titre : Débogage de la version APK #${{ github.run_number }}"
             echo "URL de publication : $RELEASE_URL"
             echo "Fichier APK : $ASSET_NAME"
-            
-            echo "## 🚀 Compilation & Publication APK Réussies" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "L'APK de débogage est disponible au téléchargement direct :" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔗 **[Télécharger sur GitHub Releases]($RELEASE_URL)** (Fichier: \`$ASSET_NAME\`)" >> $GITHUB_STEP_SUMMARY
-            echo "- 📦 L'artefact GitHub Actions normal \`app-debug-apk\` est également disponible en tant que sauvegarde." >> $GITHUB_STEP_SUMMARY
+
+            echo "## 🚀 Compilation & Publication APK Réussies" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "L'APK de débogage est disponible au téléchargement direct :" >> "$GITHUB_STEP_SUMMARY"
+            echo "- 🔗 **[Télécharger sur GitHub Releases]($RELEASE_URL)** (Fichier: \`$ASSET_NAME\`)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- 📦 L'artefact GitHub Actions normal \`app-debug-apk\` est également disponible en tant que sauvegarde." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning::La publication de la version GitHub a échoué ou a été ignorée, mais l'APK de débogage a été généré avec succès."
             echo "L'artefact GitHub Actions nommé 'app-debug-apk' reste disponible."
-            
-            echo "## ⚠️ Publication GitHub Release non effectuée (APK disponible en sauvegarde)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "## ⚠️ Publication GitHub Release non effectuée (APK disponible en sauvegarde)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "La compilation de l'APK a réussi !" >> $GITHUB_STEP_SUMMARY
-            echo "- 📦 Vous pouvez télécharger l'artefact **\`app-debug-apk\`** directement depuis le résumé de cette exécution GitHub Actions." >> $GITHUB_STEP_SUMMARY
+            echo "- 📦 Vous pouvez télécharger l'artefact **\`app-debug-apk\`** directement depuis le résumé de cette exécution GitHub Actions." >> "$GITHUB_STEP_SUMMARY"
           fi

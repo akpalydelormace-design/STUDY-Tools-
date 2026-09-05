@@ -122,6 +122,8 @@ data class Item(
 object HistoryTypes {
     const val PDF = "PDF"
     const val NOTE = "NOTE"
+    const val SUPER_NOTE = "SUPER_NOTE"
+    const val MIND_MAP = "MIND_MAP"
     const val AGENDA = "AGENDA"
     const val BULLETIN = "BULLETIN"
 }

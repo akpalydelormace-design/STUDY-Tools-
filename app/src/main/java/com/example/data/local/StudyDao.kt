@@ -86,6 +86,9 @@ interface AgendaDao {
     @Query("SELECT * FROM agenda_events WHERE dateTime < :currentTime ORDER BY dateTime DESC")
     fun getPastEvents(currentTime: Long): Flow<List<AgendaEventEntity>>
 
+    @Query("SELECT * FROM agenda_events WHERE id = :id LIMIT 1")
+    suspend fun getEventById(id: Long): AgendaEventEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvent(event: AgendaEventEntity): Long
 

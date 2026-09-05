@@ -118,7 +118,7 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
         schoolYear: String = GradeEntity.UNSPECIFIED_SCHOOL_YEAR
     ): Long {
         require(GradeCalculator.validateGrade(score, outOf, coefficient, trimestre, schoolYear).isValid) {
-            GradeCalculator.validateGrade(score, outOf, coefficient, trimestre, schoolYear).message
+            GradeCalculator.validateGrade(score, outOf, coefficient, trimestre, schoolYear).message ?: "Note invalide"
         }
         return db.gradeDao().insertGrade(
             GradeEntity(
@@ -138,7 +138,7 @@ class StudyRepository(private val context: Context, private val db: StudyDatabas
 
     suspend fun updateGrade(grade: GradeEntity) {
         require(GradeCalculator.validateGrade(grade.score, grade.outOf, grade.coefficient, grade.trimestre, grade.schoolYear).isValid) {
-            GradeCalculator.validateGrade(grade.score, grade.outOf, grade.coefficient, grade.trimestre, grade.schoolYear).message
+            GradeCalculator.validateGrade(grade.score, grade.outOf, grade.coefficient, grade.trimestre, grade.schoolYear).message ?: "Note invalide"
         }
         db.gradeDao().updateGrade(grade)
     }

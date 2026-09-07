@@ -41,10 +41,9 @@ class GeminiPodcastService(private val context: Context) {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    // Backend endpoint options (10.0.2.2 for Android Emulator, localhost for local JVM tests)
+    // Cloudflare Worker HTTPS production endpoint
     private val backendEndpoints = listOf(
-        "http://10.0.2.2:3000/api/podcast/generate",
-        "http://localhost:3000/api/podcast/generate"
+        "https://edutech-school.louamoisegognin.workers.dev/api/podcast/generate"
     )
 
     fun isNetworkAvailable(): Boolean {

@@ -8,14 +8,15 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.util.Log
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.text.Normalizer
-import java.util.zip.InflaterInputStream
 
 data class PdfSearchResult(
     val pageIndex: Int, // 0-based
@@ -26,16 +27,39 @@ data class PdfSearchResult(
 object PdfHelper {
 
     private const val TAG = "PdfHelper"
+    private var isPdfBoxInitialized = false
+
+    /**
+     * Initializes PDFBox for Android. Safe to call multiple times.
+     */
+    fun init(context: Context) {
+        if (!isPdfBoxInitialized) {
+            try {
+                PDFBoxResourceLoader.init(context.applicationContext)
+                isPdfBoxInitialized = true
+                Log.d(TAG, "PDFBoxResourceLoader initialized successfully.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize PDFBoxResourceLoader", e)
+            }
+        }
+    }
 
     /**
      * Normalizes text for case-insensitive and accent-insensitive matching.
-     * Removes diacritics and converts to lowercase.
+     * Handles accents, ligatures, lowercase conversion, and collapses whitespace.
      */
     fun normalizeText(input: String): String {
         if (input.isBlank()) return ""
-        val unaccented = Normalizer.normalize(input, Normalizer.Form.NFD)
+        val sanitized = input
+            .replace("œ", "oe")
+            .replace("Œ", "oe")
+            .replace("æ", "ae")
+            .replace("Æ", "ae")
+
+        val unaccented = Normalizer.normalize(sanitized, Normalizer.Form.NFD)
             .replace("\\p{M}+".toRegex(), "")
-        return unaccented.lowercase()
+
+        return unaccented.lowercase().replace("\\s+".toRegex(), " ")
     }
 
     /**
@@ -119,53 +143,118 @@ object PdfHelper {
     }
 
     /**
-     * Extracts text per page from PDF bytes using an offline parser.
-     * Maps streams specifically to PDF page objects when possible.
+     * Checks if extracted text indicates a scanned image PDF (no extractable text).
      */
-    suspend fun extractTextByPages(file: File): Map<Int, String> = withContext(Dispatchers.IO) {
+    fun isScannedPdf(pagesText: Map<Int, String>): Boolean {
+        if (pagesText.isEmpty()) return true
+        val totalChars = pagesText.values.sumOf { it.trim().length }
+        return totalChars < 10
+    }
+
+    /**
+     * Extracts text per page from PDF using Apache PDFBox for Android.
+     * Automatically handles font encodings, CMaps, CID fonts, subsetted fonts,
+     * compressed object streams (/ObjStm), and PDF text operators.
+     */
+    suspend fun extractTextByPages(file: File, context: Context? = null): Map<Int, String> = withContext(Dispatchers.IO) {
         val result = mutableMapOf<Int, String>()
+        if (context != null) {
+            init(context)
+        }
+
         try {
-            val bytes = file.readBytes()
-            val totalPages = getPageCount(file)
+            PDDocument.load(file).use { document ->
+                val totalPages = document.numberOfPages
+                val stripper = PDFTextStripper()
 
-            val pageTexts = extractTextByPdfObjects(bytes, totalPages)
-            if (pageTexts.isNotEmpty() && pageTexts.values.any { it.isNotBlank() }) {
                 for (p in 0 until totalPages) {
-                    result[p] = pageTexts[p] ?: ""
-                }
-                return@withContext result
-            }
+                    val rawPageText = try {
+                        stripper.startPage = p + 1
+                        stripper.endPage = p + 1
+                        stripper.getText(document) ?: ""
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error extracting text on page $p for file ${file.name}", e)
+                        ""
+                    }
 
-            // Fallback: extract streams sequentially
-            val textBlocks = extractStreamsText(bytes)
-            if (textBlocks.isNotEmpty()) {
-                val chunkSize = (textBlocks.size + totalPages - 1) / totalPages
-                for (p in 0 until totalPages) {
-                    val start = (p * chunkSize).coerceAtMost(textBlocks.size)
-                    val end = ((p + 1) * chunkSize).coerceAtMost(textBlocks.size)
-                    val pageText = if (start < end) {
-                        textBlocks.subList(start, end).joinToString(" ")
-                    } else ""
-                    result[p] = pageText
+                    val cleanedText = rawPageText
+                        .replace("\r", " ")
+                        .replace("\n", " ")
+                        .replace("\t", " ")
+                        .replace("\\s+".toRegex(), " ")
+                        .trim()
+
+                    result[p] = cleanedText
                 }
-            } else {
-                for (p in 0 until totalPages) {
-                    result[p] = ""
+
+                // Log DEBUG [PDF_SEARCH]
+                val totalExtractedLength = result.values.sumOf { it.length }
+                Log.d("PDF_SEARCH", "pdfPath=${file.name}, totalPages=$totalPages, totalExtractedLength=$totalExtractedLength")
+                for ((pageIdx, pageText) in result) {
+                    Log.d("PDF_SEARCH", "pdfPath=${file.name}, page=$pageIdx, extractedTextLength=${pageText.length}")
+                }
+
+                if (totalExtractedLength == 0) {
+                    Log.w("PDF_SEARCH", "WARNING: pdfPath=${file.name} extractedTextLength=0. PDF is likely a scanned image/photo.")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error extracting text from PDF", e)
+            Log.e(TAG, "Error extracting text from PDF ${file.name} using PDFBox", e)
         }
+
         result
     }
 
     /**
+     * Saves extracted page text to disk JSON cache.
+     */
+    fun savePageTextCacheToDisk(context: Context, pdfId: Long, pagesText: Map<Int, String>) {
+        try {
+            val cacheDir = File(context.filesDir, "pdf_text_cache")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+            val cacheFile = File(cacheDir, "${pdfId}_cache.json")
+            val json = JSONObject()
+            for ((page, text) in pagesText) {
+                json.put(page.toString(), text)
+            }
+            cacheFile.writeText(json.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving page text cache for pdf $pdfId", e)
+        }
+    }
+
+    /**
+     * Loads extracted page text from disk JSON cache if available.
+     */
+    fun loadPageTextCacheFromDisk(context: Context, pdfId: Long): Map<Int, String>? {
+        try {
+            val cacheFile = File(context.filesDir, "pdf_text_cache/${pdfId}_cache.json")
+            if (!cacheFile.exists()) return null
+            val jsonStr = cacheFile.readText()
+            if (jsonStr.isBlank()) return null
+            val json = JSONObject(jsonStr)
+            val map = mutableMapOf<Int, String>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val pageIdx = key.toIntOrNull() ?: continue
+                map[pageIdx] = json.getString(key)
+            }
+            return map
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading page text cache for pdf $pdfId", e)
+            return null
+        }
+    }
+
+    /**
      * Searches a keyword/expression across pages and returns search occurrences with context.
-     * Case-insensitive and accent-insensitive search.
+     * Case-insensitive, accent-insensitive, and whitespace-tolerant search.
      */
     fun searchInPages(
         pagesText: Map<Int, String>,
-        query: String
+        query: String,
+        pdfId: Long = -1
     ): List<PdfSearchResult> {
         if (query.isBlank()) return emptyList()
         val results = mutableListOf<PdfSearchResult>()
@@ -176,19 +265,21 @@ object PdfHelper {
             if (text.isBlank()) continue
             val normalizedPageText = normalizeText(text)
             var startIndex = 0
+            var matchCountOnPage = 0
 
             while (startIndex < normalizedPageText.length) {
                 val foundIndex = normalizedPageText.indexOf(normalizedQuery, startIndex)
                 if (foundIndex < 0) break
 
-                // Snippet calculation in original text
+                matchCountOnPage++
+
                 val origLength = text.length
-                val ratio = if (normalizedPageText.length > 0) origLength.toDouble() / normalizedPageText.length.toDouble() else 1.0
+                val ratio = if (normalizedPageText.isNotEmpty()) origLength.toDouble() / normalizedPageText.length.toDouble() else 1.0
                 val approxStart = (foundIndex * ratio).toInt().coerceIn(0, origLength)
                 val approxMatchLen = (query.trim().length * ratio).toInt().coerceAtLeast(1)
 
-                val contextStart = (approxStart - 35).coerceAtLeast(0)
-                val contextEnd = (approxStart + approxMatchLen + 35).coerceAtMost(origLength)
+                val contextStart = (approxStart - 40).coerceAtLeast(0)
+                val contextEnd = (approxStart + approxMatchLen + 40).coerceAtMost(origLength)
 
                 val matchedSegment = text.substring(
                     approxStart,
@@ -196,12 +287,10 @@ object PdfHelper {
                 ).ifBlank { query }
 
                 val snippetText = text.substring(contextStart, contextEnd)
-                    .replace("\n", " ")
-                    .replace("\r", " ")
                     .replace("\\s+".toRegex(), " ")
                     .trim()
 
-                val snippet = if (contextStart > 0) "...$snippetText..." else "$snippetText..."
+                val snippet = (if (contextStart > 0) "..." else "") + snippetText + (if (contextEnd < origLength) "..." else "")
 
                 results.add(
                     PdfSearchResult(
@@ -213,221 +302,11 @@ object PdfHelper {
 
                 startIndex = foundIndex + normalizedQuery.length.coerceAtLeast(1)
             }
+
+            // Log DEBUG per ÉTAPE 2
+            Log.d("PDF_SEARCH", "pdfId=$pdfId, page=$pageIndex, extractedTextLength=${text.length}, query=$query, normalizedQuery=$normalizedQuery, matchCount=$matchCountOnPage")
         }
+
         return results
-    }
-
-    /**
-     * Parses PDF indirect objects and extracts stream contents mapped directly to page objects.
-     */
-    private fun extractTextByPdfObjects(pdfBytes: ByteArray, totalPages: Int): Map<Int, String> {
-        val pageTexts = mutableMapOf<Int, String>()
-        try {
-            val contentStr = String(pdfBytes, Charsets.ISO_8859_1)
-
-            // Find stream objects by ID
-            val objRegex = """(\d+)\s+0\s+obj\s*(.*?)endobj""".toRegex(RegexOption.DOT_MATCHES_ALL)
-            val streamMap = mutableMapOf<Int, ByteArray>()
-            val pageContentsMap = mutableListOf<List<Int>>()
-
-            for (match in objRegex.findAll(contentStr)) {
-                val objId = match.groupValues[1].toIntOrNull() ?: continue
-                val objBody = match.groupValues[2]
-
-                // Check if page object
-                if (objBody.contains("/Type") && objBody.contains("/Page") && !objBody.contains("/Pages")) {
-                    val contentsMatch = """/Contents\s*(\d+)\s+0\s+R""".toRegex().find(objBody)
-                    if (contentsMatch != null) {
-                        val streamId = contentsMatch.groupValues[1].toIntOrNull()
-                        if (streamId != null) {
-                            pageContentsMap.add(listOf(streamId))
-                        }
-                    } else {
-                        val arrayContentsMatch = """/Contents\s*\[\s*(.*?)\s*\]""".toRegex(RegexOption.DOT_MATCHES_ALL).find(objBody)
-                        if (arrayContentsMatch != null) {
-                            val ids = """(\d+)\s+0\s+R""".toRegex().findAll(arrayContentsMatch.groupValues[1])
-                                .mapNotNull { it.groupValues[1].toIntOrNull() }.toList()
-                            if (ids.isNotEmpty()) {
-                                pageContentsMap.add(ids)
-                            }
-                        }
-                    }
-                }
-
-                // Check if stream object
-                if (objBody.contains("stream")) {
-                    val streamStart = match.range.first + match.value.indexOf("stream") + 6
-                    var dataStart = streamStart
-                    if (dataStart < pdfBytes.size && pdfBytes[dataStart] == '\r'.code.toByte()) dataStart++
-                    if (dataStart < pdfBytes.size && pdfBytes[dataStart] == '\n'.code.toByte()) dataStart++
-
-                    val endStreamIdx = contentStr.indexOf("endstream", dataStart)
-                    if (endStreamIdx > dataStart) {
-                        val streamData = ByteArray(endStreamIdx - dataStart)
-                        System.arraycopy(pdfBytes, dataStart, streamData, 0, streamData.size)
-                        streamMap[objId] = streamData
-                    }
-                }
-            }
-
-            if (pageContentsMap.isNotEmpty()) {
-                for ((idx, streamIds) in pageContentsMap.withIndex()) {
-                    if (idx >= totalPages) break
-                    val sb = StringBuilder()
-                    for (streamId in streamIds) {
-                        val rawData = streamMap[streamId] ?: continue
-                        val decompressed = tryDecompress(rawData) ?: rawData
-                        val text = parsePdfTextOperators(decompressed)
-                        if (text.isNotBlank()) {
-                            sb.append(text).append(" ")
-                        }
-                    }
-                    pageTexts[idx] = sb.toString().trim()
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in extractTextByPdfObjects", e)
-        }
-        return pageTexts
-    }
-
-    /**
-     * Scans raw PDF bytes for stream ... endstream blocks.
-     */
-    private fun extractStreamsText(pdfBytes: ByteArray): List<String> {
-        val extractedLines = mutableListOf<String>()
-        val streamTag = "stream".toByteArray(Charsets.US_ASCII)
-        val endStreamTag = "endstream".toByteArray(Charsets.US_ASCII)
-
-        var idx = 0
-        while (idx < pdfBytes.size) {
-            val streamStart = indexOfBytes(pdfBytes, streamTag, idx)
-            if (streamStart == -1) break
-
-            var dataStart = streamStart + streamTag.size
-            if (dataStart < pdfBytes.size && pdfBytes[dataStart] == '\r'.code.toByte()) dataStart++
-            if (dataStart < pdfBytes.size && pdfBytes[dataStart] == '\n'.code.toByte()) dataStart++
-
-            val streamEnd = indexOfBytes(pdfBytes, endStreamTag, dataStart)
-            if (streamEnd == -1) break
-
-            val streamLength = streamEnd - dataStart
-            if (streamLength > 0) {
-                val streamData = ByteArray(streamLength)
-                System.arraycopy(pdfBytes, dataStart, streamData, 0, streamLength)
-
-                val decompressed = tryDecompress(streamData) ?: streamData
-                val textTokens = parsePdfTextOperators(decompressed)
-                if (textTokens.isNotBlank()) {
-                    extractedLines.add(textTokens)
-                }
-            }
-
-            idx = streamEnd + endStreamTag.size
-        }
-
-        return extractedLines
-    }
-
-    private fun tryDecompress(data: ByteArray): ByteArray? {
-        return try {
-            val bis = ByteArrayInputStream(data)
-            val iis = InflaterInputStream(bis)
-            val buffer = ByteArray(1024)
-            val bos = ByteArrayOutputStream()
-            var len: Int
-            while (iis.read(buffer).also { len = it } > 0) {
-                bos.write(buffer, 0, len)
-            }
-            bos.toByteArray()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    fun parsePdfTextOperators(streamBytes: ByteArray): String {
-        val content = String(streamBytes, Charsets.ISO_8859_1)
-        val sb = StringBuilder()
-
-        // Extract literal strings: (text) Tj
-        val tjRegex = """\((.*?)\)\s*Tj""".toRegex()
-        for (match in tjRegex.findAll(content)) {
-            val text = cleanPdfString(match.groupValues[1])
-            if (text.isNotBlank()) {
-                sb.append(text).append(" ")
-            }
-        }
-
-        // Extract hex strings: <48656c6c6f> Tj
-        val hexTjRegex = """<([0-9a-fA-F\s]+)>\s*Tj""".toRegex()
-        for (match in hexTjRegex.findAll(content)) {
-            val text = decodeHexPdfString(match.groupValues[1])
-            if (text.isNotBlank()) {
-                sb.append(text).append(" ")
-            }
-        }
-
-        // Extract array text: [(text) -10 <hex>] TJ
-        val tjArrayRegex = """\[(.*?)\]\s*TJ""".toRegex(RegexOption.DOT_MATCHES_ALL)
-        for (match in tjArrayRegex.findAll(content)) {
-            val arrayContent = match.groupValues[1]
-            // literal matches
-            val innerTexts = """\((.*?)\)""".toRegex().findAll(arrayContent)
-            for (inner in innerTexts) {
-                val clean = cleanPdfString(inner.groupValues[1])
-                if (clean.isNotBlank()) {
-                    sb.append(clean)
-                }
-            }
-            // hex matches
-            val innerHex = """<([0-9a-fA-F\s]+)>""".toRegex().findAll(arrayContent)
-            for (hex in innerHex) {
-                val clean = decodeHexPdfString(hex.groupValues[1])
-                if (clean.isNotBlank()) {
-                    sb.append(clean)
-                }
-            }
-            sb.append(" ")
-        }
-
-        return sb.toString().trim()
-    }
-
-    private fun decodeHexPdfString(hex: String): String {
-        val cleanHex = hex.replace("\\s".toRegex(), "")
-        if (cleanHex.isEmpty() || cleanHex.length % 2 != 0) return ""
-        return try {
-            val bytes = ByteArray(cleanHex.length / 2)
-            for (i in bytes.indices) {
-                bytes[i] = cleanHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-            }
-            if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
-                String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
-            } else {
-                String(bytes, Charsets.ISO_8859_1)
-            }
-        } catch (e: Exception) {
-            ""
-        }
-    }
-
-    private fun cleanPdfString(raw: String): String {
-        return raw.replace("\\(", "(")
-            .replace("\\)", ")")
-            .replace("\\n", " ")
-            .replace("\\r", " ")
-            .replace("\\t", " ")
-            .replace("\\\\", "\\")
-    }
-
-    private fun indexOfBytes(source: ByteArray, target: ByteArray, fromIndex: Int): Int {
-        if (target.isEmpty() || fromIndex >= source.size) return -1
-        outer@ for (i in fromIndex..(source.size - target.size)) {
-            for (j in target.indices) {
-                if (source[i + j] != target[j]) continue@outer
-            }
-            return i
-        }
-        return -1
     }
 }

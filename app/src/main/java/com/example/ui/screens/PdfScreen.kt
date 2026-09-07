@@ -305,6 +305,7 @@ fun PdfReaderView(
     val searchQuery by viewModel.pdfSearchQuery.collectAsState()
     val searchResults by viewModel.pdfSearchResults.collectAsState()
     val currentMatchIdx by viewModel.currentPdfSearchMatchIndex.collectAsState()
+    val isPdfScanned by viewModel.isPdfScanned.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
     var showJumpPageDialog by remember { mutableStateOf(false) }
@@ -469,9 +470,16 @@ fun PdfReaderView(
                                         color = AccentEmerald,
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                } else if (isPdfScanned) {
+                                    Text(
+                                        text = "⚠️ Ce document est un scan ou une image sans texte vectoriel. La recherche textuelle n'est pas disponible.",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
                                 } else {
                                     Text(
-                                        text = "Aucun résultat pour cette recherche (les scans d'images sans texte ne contiennent pas de texte indexé)",
+                                        text = "Aucun résultat trouvé pour « $searchQuery »",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

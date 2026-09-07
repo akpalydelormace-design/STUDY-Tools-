@@ -202,6 +202,9 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentPdfSearchMatchIndex = MutableStateFlow(0) // 0-based
     val currentPdfSearchMatchIndex: StateFlow<Int> = _currentPdfSearchMatchIndex.asStateFlow()
 
+    private val _isPdfScanned = MutableStateFlow(false)
+    val isPdfScanned: StateFlow<Boolean> = _isPdfScanned.asStateFlow()
+
     private val _pdfErrorMessage = MutableStateFlow<String?>(null)
     val pdfErrorMessage: StateFlow<String?> = _pdfErrorMessage.asStateFlow()
 
@@ -358,6 +361,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         _pdfSearchQuery.value = ""
         _pdfSearchResults.value = emptyList()
         _currentPdfSearchMatchIndex.value = 0
+        _isPdfScanned.value = false
 
         loadPdfPage(pdf, startPage)
 
@@ -373,10 +377,20 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Pre-cache text in background for instant search
+        // Pre-cache text in background for instant search with disk persistence
         viewModelScope.launch {
             if (file.exists()) {
-                pdfPagesTextCache = PdfHelper.extractTextByPages(file)
+                val diskCache = PdfHelper.loadPageTextCacheFromDisk(getApplication(), pdf.id)
+                if (diskCache != null && diskCache.isNotEmpty()) {
+                    pdfPagesTextCache = diskCache
+                } else {
+                    val extracted = PdfHelper.extractTextByPages(file, getApplication())
+                    pdfPagesTextCache = extracted
+                    if (extracted.isNotEmpty()) {
+                        PdfHelper.savePageTextCacheToDisk(getApplication(), pdf.id, extracted)
+                    }
+                }
+                _isPdfScanned.value = PdfHelper.isScannedPdf(pdfPagesTextCache)
             }
         }
     }
@@ -408,6 +422,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         podcastPlayerManager.release()
         _activePdf.value = null
         _currentPdfBitmap.value = null
+        _isPdfScanned.value = false
         pdfPagesTextCache = emptyMap()
     }
 
@@ -459,17 +474,34 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val pdf = _activePdf.value
-            if (pdfPagesTextCache.isEmpty() && pdf != null) {
+            if (pdf != null && pdfPagesTextCache.isEmpty()) {
                 val file = File(pdf.localFilePath)
                 if (file.exists()) {
-                    pdfPagesTextCache = PdfHelper.extractTextByPages(file)
+                    val diskCache = PdfHelper.loadPageTextCacheFromDisk(getApplication(), pdf.id)
+                    if (diskCache != null && diskCache.isNotEmpty()) {
+                        pdfPagesTextCache = diskCache
+                    } else {
+                        val extracted = PdfHelper.extractTextByPages(file, getApplication())
+                        pdfPagesTextCache = extracted
+                        if (extracted.isNotEmpty()) {
+                            PdfHelper.savePageTextCacheToDisk(getApplication(), pdf.id, extracted)
+                        }
+                    }
                 }
             }
-            val results = PdfHelper.searchInPages(pdfPagesTextCache, query)
+
+            _isPdfScanned.value = PdfHelper.isScannedPdf(pdfPagesTextCache)
+
+            if (_isPdfScanned.value) {
+                _pdfSearchResults.value = emptyList()
+                _currentPdfSearchMatchIndex.value = 0
+                return@launch
+            }
+
+            val results = PdfHelper.searchInPages(pdfPagesTextCache, query, pdf?.id ?: -1)
             _pdfSearchResults.value = results
             _currentPdfSearchMatchIndex.value = 0
             if (results.isNotEmpty()) {
-                // Jump to first result's page
                 val match = results[0]
                 goToPdfPage(match.pageIndex + 1)
             }

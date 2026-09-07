@@ -60,6 +60,7 @@ import com.example.ui.theme.PrimaryIndigo
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.data.pdf.PdfHelper.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             val studyViewModel: StudyViewModel = viewModel()

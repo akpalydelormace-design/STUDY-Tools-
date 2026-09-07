@@ -104,14 +104,9 @@ class PodcastTest {
     }
 
     @Test
-    fun testNoHardcodedApiKeyInSourceCode() {
-        // Read BuildConfig or env placeholder
-        val testApiKey = try {
-            com.example.BuildConfig.GEMINI_API_KEY
-        } catch (_: Exception) {
-            ""
-        }
-        // Verify key is not a raw leaked secret starting with AIza
-        assertFalse("API Key should not be a raw hardcoded AIza key", testApiKey.startsWith("AIzaSyFakeKeyThatIsExposed"))
+    fun testNoGeminiApiKeyExposedInBuildConfigOrClient() {
+        // Verify via reflection that BuildConfig does NOT contain GEMINI_API_KEY field
+        val buildConfigFields = com.example.BuildConfig::class.java.declaredFields.map { it.name }
+        assertFalse("GEMINI_API_KEY must NOT be present in BuildConfig fields", buildConfigFields.contains("GEMINI_API_KEY"))
     }
 }
